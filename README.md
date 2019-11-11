@@ -6,10 +6,6 @@ as described by [NaCL](https://en.wikipedia.org/wiki/NaCl_(software)) and
 part of the Golang standard library [box](https://godoc.org/golang.org/x/crypto/nacl/box)
 and [secretbox](https://godoc.org/golang.org/x/crypto/nacl/secretbox).
 
-`salt` supports reading the encryption key securely from a prompt or passed
-via the `-k` option. You may use other UNIX tools such as `base64` to encode
-the resulting cipher text for portability.
-
 ## Installation
 
 ```#!bash
