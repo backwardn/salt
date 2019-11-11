@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,13 +12,16 @@ import (
 	"os"
 	"path"
 
+	"golang.org/x/crypto/nacl/box"
 	"golang.org/x/crypto/nacl/secretbox"
 )
 
 var (
 	enc bool
 	dec bool
+	gen bool
 	key string
+	pub string
 
 	errDecryptionError = errors.New("error: decryption failed")
 )
@@ -25,14 +29,25 @@ var (
 func init() {
 	flag.BoolVar(&enc, "e", false, "encrypt contents of message")
 	flag.BoolVar(&dec, "d", false, "decrypt contents of message")
-	flag.StringVar(&key, "k", "", "secret key")
+	flag.BoolVar(&gen, "g", false, "generate public/private key pair")
+	flag.StringVar(&key, "k", "", "secret key | private key")
+	flag.StringVar(&pub, "p", "", "recipient/sender key | public key")
 
 	flag.Parse()
 }
 
-func encrypt(key, message []byte) ([]byte, error) {
+func genkeys() (*[32]byte, *[32]byte, error) {
+	pub, priv, err := box.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pub, priv, nil
+}
+
+func encrypt(key, pub, message []byte) ([]byte, error) {
 	var (
 		secretKey [32]byte
+		publicKey [32]byte
 		nonce     [24]byte
 	)
 
@@ -42,19 +57,36 @@ func encrypt(key, message []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	ciphertext := secretbox.Seal(nonce[:], message, &nonce, &secretKey)
-	return ciphertext, nil
+	if pub != nil || len(pub) == 32 {
+		copy(publicKey[:], pub)
+
+		return box.Seal(nonce[:], message, &nonce, &publicKey, &secretKey), nil
+	}
+
+	return secretbox.Seal(nonce[:], message, &nonce, &secretKey), nil
 }
 
-func decrypt(key, ciphertext []byte) ([]byte, error) {
+func decrypt(key, sender, ciphertext []byte) ([]byte, error) {
 	var (
 		decryptNonce [24]byte
 		secretKey    [32]byte
+		publicKey    [32]byte
 	)
 
 	copy(secretKey[:], key)
 
 	copy(decryptNonce[:], ciphertext[:24])
+
+	if sender != nil || len(sender) == 32 {
+		copy(publicKey[:], sender)
+
+		plaintext, ok := box.Open(nil, ciphertext[24:], &decryptNonce, &publicKey, &secretKey)
+		if !ok {
+			return nil, errDecryptionError
+		}
+		return plaintext, nil
+	}
+
 	plaintext, ok := secretbox.Open(nil, ciphertext[24:], &decryptNonce, &secretKey)
 	if !ok {
 		return nil, errDecryptionError
@@ -68,10 +100,20 @@ func main() {
 		err   error
 	)
 
-	if !enc && !dec {
+	if !enc && !dec && !gen {
 		fmt.Printf("Usage: %s [options] [message]\n", path.Base(os.Args[0]))
 		flag.PrintDefaults()
 		os.Exit(1)
+	}
+
+	if gen {
+		pub, priv, err := genkeys()
+		if err != nil {
+			log.Fatalf("error generating public/private key pair: %s", err)
+		}
+		fmt.Printf("Private Key: %X\n", *priv)
+		fmt.Printf("Public Key: %X\n", *pub)
+		os.Exit(0)
 	}
 
 	if len(flag.Args()) == 1 {
@@ -83,15 +125,25 @@ func main() {
 		}
 	}
 
+	keyBytes, err := hex.DecodeString(key)
+	if err != nil {
+		log.Fatalf("error decoding secret/private key: %s", err)
+	}
+
+	pubBytes, err := hex.DecodeString(pub)
+	if err != nil {
+		log.Fatalf("error decoding secret/private key: %s", err)
+	}
+
 	if enc {
-		ciphertext, err := encrypt([]byte(key), input)
+		ciphertext, err := encrypt(keyBytes, pubBytes, input)
 		if err != nil {
 			log.Fatalf("error encrypting source: %s", err)
 		}
 
 		os.Stdout.Write(ciphertext)
 	} else if dec {
-		plaintext, err := decrypt([]byte(key), input)
+		plaintext, err := decrypt(keyBytes, pubBytes, input)
 		if err != nil {
 			log.Fatalf("error encrypting source: %s", err)
 		}
