@@ -57,10 +57,12 @@ func encrypt(key, pub, message []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if pub != nil || len(pub) == 32 {
+	if len(pub) == 32 {
 		copy(publicKey[:], pub)
 
 		return box.Seal(nonce[:], message, &nonce, &publicKey, &secretKey), nil
+	} else if len(pub) > 0 {
+		return nil, errors.New("Recipient public key must be 32 bytes long")
 	}
 
 	return secretbox.Seal(nonce[:], message, &nonce, &secretKey), nil
@@ -77,7 +79,7 @@ func decrypt(key, sender, ciphertext []byte) ([]byte, error) {
 
 	copy(decryptNonce[:], ciphertext[:24])
 
-	if sender != nil || len(sender) == 32 {
+	if len(sender) == 32 {
 		copy(publicKey[:], sender)
 
 		plaintext, ok := box.Open(nil, ciphertext[24:], &decryptNonce, &publicKey, &secretKey)
@@ -85,6 +87,8 @@ func decrypt(key, sender, ciphertext []byte) ([]byte, error) {
 			return nil, errDecryptionError
 		}
 		return plaintext, nil
+	} else if len(sender) > 0 {
+		return nil, errors.New("Sender public key must be 32 bytes long")
 	}
 
 	plaintext, ok := secretbox.Open(nil, ciphertext[24:], &decryptNonce, &secretKey)
